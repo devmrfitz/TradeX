@@ -144,6 +144,25 @@ mod trade_x {
             return (trade_x, ownership_badge);
         }
 
+        pub fn fund_vault(&mut self, funds: Bucket) {
+            if self.tradex_vaults.contains_key(&funds.resource_address()) {
+                self.tradex_vaults
+                    .get_mut(&funds.resource_address())
+                    .unwrap()
+                    .put(funds);
+            } else {
+                self.tradex_vaults
+                    .insert(funds.resource_address(), Vault::with_bucket(funds));
+            }
+        }
+
+        pub fn withdraw_from_vault(&mut self, amount: Decimal, address: ResourceAddress) -> Bucket {
+            let funds: Bucket = self.tradex_vaults.get_mut(&address).unwrap().take(amount);
+
+            funds
+        }
+
+        // ------------------------------Trader functions start here-------------------------------------------------
         pub fn create_and_fund_wallet(&mut self, funds: Bucket) -> Bucket {
             assert!(!funds.is_empty(), "funds is empty");
 
@@ -306,22 +325,36 @@ mod trade_x {
                 .put(margin_funds);
         }
 
-        pub fn fund_vault(&mut self, funds: Bucket) {
-            if self.tradex_vaults.contains_key(&funds.resource_address()) {
-                self.tradex_vaults
-                    .get_mut(&funds.resource_address())
-                    .unwrap()
-                    .put(funds);
-            } else {
-                self.tradex_vaults
-                    .insert(funds.resource_address(), Vault::with_bucket(funds));
-            }
-        }
+        pub fn trade(
+            &mut self,
+            radiswap_pool_address: ComponentAddress,
+            amount_to_trade_out: Decimal,
+            funds_resource_address: ResourceAddress,
+            traders_badge: Proof,
+        ) {
+            let traders_badge: ValidatedProof = traders_badge
+                .validate_proof(ProofValidationMode::ValidateContainsAmount(
+                    self.traders_badge,
+                    dec!("1"),
+                ))
+                .expect("[Withdraw Payment]: Invalid proof provided");
 
-        pub fn withdraw_from_vault(&mut self, amount: Decimal, address: ResourceAddress) -> Bucket {
-            let funds: Bucket = self.tradex_vaults.get_mut(&address).unwrap().take(amount);
+            assert_eq!(
+                traders_badge.resource_address(),
+                self.traders_badge,
+                "[Withdraw Payment]: Badge provided is not a valid trader's badge"
+            );
+            assert_eq!(
+                    traders_badge.amount(), Decimal::one(),
+                    "[Withdraw Payment]: This method requires that exactly one trader's badge is passed to the method"
+                );
 
-            funds
+            self._trade(
+                radiswap_pool_address,
+                amount_to_trade_out,
+                funds_resource_address,
+                traders_badge.non_fungible::<TraderBadge>().local_id(),
+            );
         }
 
         pub fn withdraw_payment(
@@ -408,6 +441,7 @@ mod trade_x {
             return returned_funds;
         }
 
+        // -----------------------------------------------------------------------------------------------------------
         pub fn add_standard_radiswap_pool(
             &mut self,
             pool_address: ComponentAddress,
@@ -493,38 +527,6 @@ mod trade_x {
                     Vault::with_bucket(output_tokens),
                 );
             }
-        }
-
-        pub fn trade(
-            &mut self,
-            radiswap_pool_address: ComponentAddress,
-            amount_to_trade_out: Decimal,
-            funds_resource_address: ResourceAddress,
-            traders_badge: Proof,
-        ) {
-            let traders_badge: ValidatedProof = traders_badge
-                .validate_proof(ProofValidationMode::ValidateContainsAmount(
-                    self.traders_badge,
-                    dec!("1"),
-                ))
-                .expect("[Withdraw Payment]: Invalid proof provided");
-
-            assert_eq!(
-                traders_badge.resource_address(),
-                self.traders_badge,
-                "[Withdraw Payment]: Badge provided is not a valid trader's badge"
-            );
-            assert_eq!(
-                    traders_badge.amount(), Decimal::one(),
-                    "[Withdraw Payment]: This method requires that exactly one trader's badge is passed to the method"
-                );
-
-            self._trade(
-                radiswap_pool_address,
-                amount_to_trade_out,
-                funds_resource_address,
-                traders_badge.non_fungible::<TraderBadge>().local_id(),
-            );
         }
 
         pub fn poll_all_traders_health(&mut self) {
