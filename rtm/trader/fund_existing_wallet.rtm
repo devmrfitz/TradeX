@@ -2,7 +2,8 @@ CALL_METHOD
     ComponentAddress("${account}")
     "create_proof_by_amount"
     Decimal("1")
-    ResourceAddress("${tradeXOwnerBadge}");
+    ResourceAddress("${traderBadge}");
+POP_FROM_AUTH_ZONE Proof("my_proof");
 CALL_METHOD
     ComponentAddress("component_sim1qgehpqdhhr62xh76wh6gppnyn88a0uau68epljprvj3sxknsqr")
     "lock_fee"
@@ -10,15 +11,16 @@ CALL_METHOD
 CALL_METHOD
     ComponentAddress("${account}")
     "withdraw_by_amount"
-    Decimal("200")
+    Decimal("2")
     ResourceAddress("${xrd}");
 TAKE_FROM_WORKTOP
     ResourceAddress("${xrd}")
     Bucket("bucket1");    
 CALL_METHOD
     ComponentAddress("${component}")
-    "fund_vault"
+    "fund_existing_wallet"
     Bucket("bucket1")
+    Proof("my_proof")
     ;
 CALL_METHOD
     ComponentAddress("${account}")
