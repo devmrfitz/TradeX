@@ -49,15 +49,47 @@ mod trade_x {
     }
 
     impl TradeX {
+        pub fn test1(&mut self, f: Bucket) {
+            println!("Hello World");
+        }
+
+        pub fn test2(&mut self) {
+            println!("Hello World");
+        }
+
+        pub fn test3(&mut self, f: Vec<Bucket>) {
+            println!("Hello World");
+        }
+
+        pub fn test4(&mut self, f: Decimal) {
+            println!("Hello World");
+        }
+
+        pub fn dummy_inst(r: ResourceAddress, j: ResourceAddress) -> ComponentAddress {
+            let mut trade_x: ComponentAddress = Self {
+                tradex_vaults: HashMap::new(),
+                approved_radiswap_pools: Vec::new(),
+                tradex_wallets: HashMap::new(),
+                tradex_lending_balances: HashMap::new(),
+                internal_admin_badge: Vault::new(r),
+                traders_badge: r, // "resource_sim1qzcfg0wvhrcgyerr7fk6ra7xv4ak2vdj6cheguvuqvmqdzqysx",
+                commission: Decimal::from(0),
+                xrd_resource_address: r,
+                standard_radiswap_pools: HashMap::new(),
+            }
+            .instantiate()
+            .globalize();
+            trade_x
+        }
+
         pub fn instantiate_tradex(
             funds: Vec<Bucket>,
             approved_radiswap_pools: Vec<ComponentAddress>,
             commission: Decimal,
             xrd_resource_address: ResourceAddress,
-            standard_radiswap_pools: HashMap<
-                ResourceAddress,
-                HashMap<ResourceAddress, ComponentAddress>,
-            >,
+            standard_radiswap_pools_from: Vec<ResourceAddress>,
+            standard_radiswap_pools_to: Vec<ResourceAddress>,
+            standard_radiswap_pools_addr: Vec<ComponentAddress>,
         ) -> (ComponentAddress, Bucket) {
             let ownership_badge: Bucket = ResourceBuilder::new_fungible()
                 .metadata("name", "Ownership Badge")
@@ -119,12 +151,25 @@ mod trade_x {
                 )
                 .default(rule!(allow_all), AccessRule::DenyAll);
             let mut tradex_vaults: HashMap<ResourceAddress, Vault> = HashMap::new();
-            for bucket in funds.into_iter() {
+            for bucket in funds {
                 tradex_vaults
                     .entry(bucket.resource_address())
                     .or_insert(Vault::new(bucket.resource_address()))
                     .put(bucket)
             }
+
+            let standard_radiswap_pools: HashMap<
+                ResourceAddress,
+                HashMap<ResourceAddress, ComponentAddress>,
+            > = standard_radiswap_pools_from
+                .into_iter()
+                .zip(standard_radiswap_pools_to.into_iter())
+                .zip(standard_radiswap_pools_addr.into_iter())
+                .map(|((from, to), addr)| (from, (to, addr)))
+                .fold(HashMap::new(), |mut acc, (from, (to, addr))| {
+                    acc.entry(from).or_insert(HashMap::new()).insert(to, addr);
+                    return acc;
+                });
 
             let mut trade_x: TradeXComponent = Self {
                 tradex_vaults,
@@ -141,7 +186,7 @@ mod trade_x {
             trade_x.add_access_check(access_rules);
             let trade_x: ComponentAddress = trade_x.globalize();
 
-            return (trade_x, ownership_badge);
+            (trade_x, ownership_badge)
         }
 
         pub fn fund_vault(&mut self, funds: Bucket) {
