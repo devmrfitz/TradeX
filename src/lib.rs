@@ -234,21 +234,16 @@ mod trade_x {
                 "tradex_vaults does not have enough funds"
             );
 
-            let mut non_fungible_id: NonFungibleLocalId = NonFungibleLocalId::random();
-            while self.tradex_wallets.contains_key(&non_fungible_id) {
-                non_fungible_id = NonFungibleLocalId::random();
-            }
-
             let traders_badge: Bucket = self.internal_admin_badge.authorize(|| {
                 let traders_resource_manager: &mut ResourceManager =
                     borrow_resource_manager!(self.traders_badge);
-                traders_resource_manager.mint_non_fungible(&non_fungible_id.clone(), TraderBadge {})
+                traders_resource_manager.mint_uuid_non_fungible(TraderBadge {})
             });
 
             self.tradex_wallets
-                .insert(non_fungible_id.clone(), HashMap::new());
+                .insert(traders_badge.non_fungible_local_id(), HashMap::new());
             self.tradex_lending_balances
-                .insert(non_fungible_id, HashMap::new());
+                .insert(traders_badge.non_fungible_local_id(), HashMap::new());
 
             self.tradex_wallets
                 .get_mut(&traders_badge.non_fungible::<TraderBadge>().local_id())
