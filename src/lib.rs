@@ -49,39 +49,6 @@ mod trade_x {
     }
 
     impl TradeX {
-        pub fn test1(&mut self, f: Bucket) {
-            println!("Hello World");
-        }
-
-        pub fn test2(&mut self) {
-            println!("Hello World");
-        }
-
-        pub fn test3(&mut self, f: Vec<Bucket>) {
-            println!("Hello World");
-        }
-
-        pub fn test4(&mut self, f: Decimal) {
-            println!("Hello World");
-        }
-
-        pub fn dummy_inst(r: ResourceAddress, j: ResourceAddress) -> ComponentAddress {
-            let mut trade_x: ComponentAddress = Self {
-                tradex_vaults: HashMap::new(),
-                approved_radiswap_pools: Vec::new(),
-                tradex_wallets: HashMap::new(),
-                tradex_lending_balances: HashMap::new(),
-                internal_admin_badge: Vault::new(r),
-                traders_badge: r, // "resource_sim1qzcfg0wvhrcgyerr7fk6ra7xv4ak2vdj6cheguvuqvmqdzqysx",
-                commission: Decimal::from(0),
-                xrd_resource_address: r,
-                standard_radiswap_pools: HashMap::new(),
-            }
-            .instantiate()
-            .globalize();
-            trade_x
-        }
-
         pub fn instantiate_tradex(
             funds: Vec<Bucket>,
             approved_radiswap_pools: Vec<ComponentAddress>,
@@ -270,7 +237,7 @@ mod trade_x {
                 .insert(funds_resource_address, funds_amount);
 
             // Returning the bidder's badge back to the caller
-            return traders_badge;
+            traders_badge
         }
 
         pub fn fund_existing_wallet(&mut self, funds: Bucket, traders_badge: Proof) {
@@ -372,6 +339,7 @@ mod trade_x {
             funds_resource_address: ResourceAddress,
             traders_badge: Proof,
         ) {
+            self.poll_all_traders_health();
             let traders_badge: ValidatedProof = traders_badge
                 .validate_proof(ProofValidationMode::ValidateContainsAmount(
                     self.traders_badge,
@@ -403,6 +371,7 @@ mod trade_x {
             address: ResourceAddress,
             traders_badge: Proof,
         ) -> Bucket {
+            self.poll_all_traders_health();
             let traders_badge: ValidatedProof = traders_badge
                 .validate_proof(ProofValidationMode::ValidateContainsAmount(
                     self.traders_badge,
@@ -481,6 +450,76 @@ mod trade_x {
             return returned_funds;
         }
 
+        pub fn check_wallets(&self, traders_badge: Proof) -> (Vec<ResourceAddress>, Vec<Decimal>) {
+            let traders_badge: ValidatedProof = traders_badge
+                .validate_proof(ProofValidationMode::ValidateContainsAmount(
+                    self.traders_badge,
+                    dec!("1"),
+                ))
+                .expect("[Withdraw Payment]: Invalid proof provided");
+
+            assert_eq!(
+                traders_badge.resource_address(),
+                self.traders_badge,
+                "[Withdraw Payment]: Badge provided is not a valid trader's badge"
+            );
+            assert_eq!(
+                    traders_badge.amount(), Decimal::one(),
+                    "[Withdraw Payment]: This method requires that exactly one trader's badge is passed to the method"
+                );
+
+            let mut resource_ids: Vec<ResourceAddress> = Vec::new();
+            let mut resource_amounts: Vec<Decimal> = Vec::new();
+
+            for (resource_address, bucket) in self
+                .tradex_wallets
+                .get(&traders_badge.non_fungible::<TraderBadge>().local_id())
+                .unwrap()
+                .iter()
+            {
+                resource_ids.push(resource_address.clone());
+                resource_amounts.push(bucket.amount());
+            }
+
+            (resource_ids, resource_amounts)
+        }
+
+        pub fn show_lending_balance(
+            &self,
+            traders_badge: Proof,
+        ) -> (Vec<ResourceAddress>, Vec<Decimal>) {
+            let traders_badge: ValidatedProof = traders_badge
+                .validate_proof(ProofValidationMode::ValidateContainsAmount(
+                    self.traders_badge,
+                    dec!("1"),
+                ))
+                .expect("[Withdraw Payment]: Invalid proof provided");
+
+            assert_eq!(
+                traders_badge.resource_address(),
+                self.traders_badge,
+                "[Withdraw Payment]: Badge provided is not a valid trader's badge"
+            );
+            assert_eq!(
+                    traders_badge.amount(), Decimal::one(),
+                    "[Withdraw Payment]: This method requires that exactly one trader's badge is passed to the method"
+                );
+
+            let mut resource_ids: Vec<ResourceAddress> = Vec::new();
+            let mut resource_amounts: Vec<Decimal> = Vec::new();
+
+            for (resource_address, value) in self
+                .tradex_lending_balances
+                .get(&traders_badge.non_fungible::<TraderBadge>().local_id())
+                .unwrap()
+                .iter()
+            {
+                resource_ids.push(resource_address.clone());
+                resource_amounts.push(*value);
+            }
+
+            (resource_ids, resource_amounts)
+        }
         // -----------------------------------------------------------------------------------------------------------
         pub fn add_standard_radiswap_pool(
             &mut self,
@@ -500,6 +539,32 @@ mod trade_x {
                 .get_mut(&resource_address_a)
                 .unwrap()
                 .insert(resource_address_b, pool_address);
+
+            if !self
+                .standard_radiswap_pools
+                .contains_key(&resource_address_b)
+            {
+                self.standard_radiswap_pools
+                    .insert(resource_address_b, HashMap::new());
+            }
+
+            self.standard_radiswap_pools
+                .get_mut(&resource_address_b)
+                .unwrap()
+                .insert(resource_address_a, pool_address);
+        }
+
+        pub fn show_standard_radiswap_pools(
+            &self,
+            a: ResourceAddress,
+            b: ResourceAddress,
+        ) -> ComponentAddress {
+            self.standard_radiswap_pools
+                .get(&a)
+                .unwrap()
+                .get(&b)
+                .unwrap()
+                .clone()
         }
 
         pub fn add_approved_radiswap_pool(&mut self, pool_address: ComponentAddress) {
@@ -584,8 +649,8 @@ mod trade_x {
             let mut current_xrd_balance: Decimal = Decimal::zero();
             // iterate over each tradex wallet and check if the trader has enough funds to cover the margin
             for (_resource_address, vault) in self.tradex_wallets.get(&trader_id).unwrap().iter() {
-                current_xrd_balance +=
-                    self.get_tradex_wallet_value_in_xrd(&vault.resource_address(), &vault.amount());
+                current_xrd_balance += self
+                    ._get_tradex_wallet_value_in_xrd(&vault.resource_address(), &vault.amount());
             }
 
             let current_lent_amount: Decimal = self
@@ -597,7 +662,8 @@ mod trade_x {
                 .clone();
 
             if current_lent_amount > Decimal::zero()
-                && self.commission * current_lent_amount <= current_xrd_balance
+                && ((Decimal::from("1") + self.commission) * current_lent_amount)
+                    >= current_xrd_balance
             {
                 // if the trader does not have enough funds to cover the margin, then we need to liquidate the trader
                 self.liquidate_trader(trader_id);
@@ -613,6 +679,9 @@ mod trade_x {
 
             for (resource_address, amount) in vaults {
                 let input_tokens_resource_address: ResourceAddress = resource_address;
+                if input_tokens_resource_address == self.xrd_resource_address {
+                    continue;
+                }
                 assert!(
                     self.standard_radiswap_pools
                         .contains_key(&self.xrd_resource_address)
@@ -689,7 +758,18 @@ mod trade_x {
                 .put(liquidated_funds);
         }
 
-        fn get_tradex_wallet_value_in_xrd(
+        pub fn get_tradex_wallet_value_in_xrd(
+            &self,
+            input_tokens_resource_address: ResourceAddress,
+            input_tokens_amount: Decimal,
+        ) -> Decimal {
+            self._get_tradex_wallet_value_in_xrd(
+                &input_tokens_resource_address,
+                &input_tokens_amount,
+            )
+        }
+
+        fn _get_tradex_wallet_value_in_xrd(
             &self,
             input_tokens_resource_address: &ResourceAddress,
             input_tokens_amount: &Decimal,
@@ -749,7 +829,7 @@ mod trade_x {
             let (a_pool_resource_address, _b_pool_resource_address) =
                 RadiswapComponentTarget::at(pool_address).get_pair();
 
-            let fee_amount = *input_tokens_amount * fee;
+            let fee_amount = (*input_tokens_amount) * fee;
 
             let output_tokens_amount = if *input_tokens_resource_address == a_pool_resource_address
             {
